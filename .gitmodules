@@ -1,0 +1,7 @@
+[submodule "vendor/fsharp"]
+	path = vendor/fsharp
+	url = ../fsharp
+	branch = copilot/bang-free-computation-expressions
+[submodule "vendor/fsharp-wasm"]
+	path = vendor/fsharp-wasm
+	url = ../fsharp-wasm
