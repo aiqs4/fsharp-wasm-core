@@ -87,11 +87,4 @@ type KeyNotFoundException(message: string, innerException: exn) =
     inherit Exception(message, innerException)
     new(message: string) = KeyNotFoundException(message, null)
     new() = KeyNotFoundException("The given key was not present in the dictionary.")
-namespace System.Collections.Generic
-/// Raised when a key is not found in a dictionary.
-type KeyNotFoundException(message: string, innerException: exn) =
-    inherit System.Exception(message, innerException)
-    new(message: string) = KeyNotFoundException(message, null)
-    new() = KeyNotFoundException("The given key was not present in the dictionary.")
-
 
