@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet
+        uses: actions/cache@v5
+        with:
+          path: ~/.nuget/packages
+          key: nuget-core-${{ runner.os }}-${{ hashFiles('**/*.fsproj') }}
+          restore-keys: nuget-core-${{ runner.os }}-
+
+      - name: Build FSharp.Wasm.Core
+        run: dotnet build FSharp.Wasm.Core/FSharp.WasmCore.fsproj -c Release
+
+      - name: Run Expecto tests
+        run: dotnet test tests/FSharp.WasmCore.Tests/FSharp.WasmCore.Tests.fsproj -c Release --logger "console;verbosity=normal"

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>FSharp.Wasm.Core</AssemblyName>
+    <RootNamespace>FSharp.Wasm.Core</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <!-- This library is meant to be consumed by the fsharp-wasm WasmGC backend.
+         It compiles normally under standard .NET for testing purposes. -->
+    <Description>BCL subset for FSharp.Core compilation targeting WasmGC.</Description>
+    <Authors>fsharp-wasm compiler team</Authors>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Interfaces.fs" />
+    <Compile Include="Exception.fs" />
+    <Compile Include="Math.fs" />
+    <Compile Include="StringBuilder.fs" />
+    <Compile Include="ResizeArray.fs" />
+    <Compile Include="Dictionary.fs" />
+    <Compile Include="Stack.fs" />
+    <Compile Include="Task.fs" />
+    <Compile Include="RuntimeHelper.fs" />
+  </ItemGroup>
+</Project>
