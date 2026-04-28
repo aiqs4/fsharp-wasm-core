@@ -19,22 +19,21 @@ type TaskStatus =
 
 // ── AggregateException ───────────────────────────────────────────────────────
 
-[<AllowNullLiteral>]
+/// AggregateException: wraps one or more exceptions.
+/// NOTE: No [<AllowNullLiteral>] — never null in practice.
 type AggregateException(innerExceptions: exn[]) =
     inherit Exception(
         (if innerExceptions.Length = 1
          then innerExceptions.[0].Message
          else
              let msgs = innerExceptions |> Array.map (fun e -> e.Message) |> String.concat "; "
-             sprintf "One or more errors occurred. (%s)" msgs),
-        if innerExceptions.Length = 1 then innerExceptions.[0] else null)
+             sprintf "One or more errors occurred. (%s)" msgs))
     new(ex: exn)                        = AggregateException([| ex |])
     new(msg: string, exns: exn[])       = AggregateException(exns)
     member _.InnerExceptions            = innerExceptions
 
-// ── Non-generic Task ─────────────────────────────────────────────────────────
-
-[<AllowNullLiteral>]
+/// Non-generic Task: represents a synchronous void operation.
+/// NOTE: No [<AllowNullLiteral>] — never null in practice.
 type Task(action: unit -> unit) =
 
     let mutable status : TaskStatus = TaskStatus.Created
@@ -94,7 +93,8 @@ type Task(action: unit -> unit) =
 
 // ── Generic Task<T> ──────────────────────────────────────────────────────────
 
-[<AllowNullLiteral>]
+/// Generic Task<T>: represents a synchronous operation that returns a value.
+/// NOTE: No [<AllowNullLiteral>] — never null in practice.
 type Task<'T>(func: unit -> 'T) =
 
     let mutable status : TaskStatus = TaskStatus.Created
@@ -154,7 +154,7 @@ type Task<'T>(func: unit -> 'T) =
         t.Start()
         t
 
-    override _.ToString() = sprintf "Task<%s>[%A]" (typeof<'T>.Name) status
+    override _.ToString() = sprintf "Task[%A]" status
 
 // ── ValueTask<T> (minimal stub) ──────────────────────────────────────────────
 

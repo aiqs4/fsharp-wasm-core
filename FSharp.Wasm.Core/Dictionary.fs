@@ -14,7 +14,8 @@ type private Slot<'K,'V> =
     new(occupied, key, value, hash) =
         { IsOccupied = occupied; Key = key; Value = value; Hash = hash }
 
-[<AllowNullLiteral>]
+/// Dictionary<K,V>: open-addressing hash table for WasmGC.
+/// NOTE: Never null in practice — no need for [<AllowNullLiteral>].
 type Dictionary<'K, 'V when 'K: equality>(initialCapacity: int, comparer: IEqualityComparer<'K>) =
 
     let mutable slots   : Slot<'K,'V>[] = Array.zeroCreate (max 4 initialCapacity)
@@ -40,8 +41,11 @@ type Dictionary<'K, 'V when 'K: equality>(initialCapacity: int, comparer: IEqual
     new(other: Dictionary<'K,'V>) as this =
         Dictionary<'K,'V>(other.Count, null)
         then
-            for kvp in (other :> seq<KeyValuePair<'K,'V>>) do
-                this.[kvp.Key] <- kvp.Value
+            // Copy: iterate slots directly (don't use seq/IEnumerable — WasmGC VTable not supported)
+            for i in 0 .. other.slots.Length - 1 do
+                let s = other.slots.[i]
+                if s.IsOccupied then
+                    this.SetInternal(s.Key, s.Value, s.Hash)
 
     member private this.FindSlot(key: 'K, hash: int) : int =
         let cap    = slots.Length
@@ -147,13 +151,13 @@ type Dictionary<'K, 'V when 'K: equality>(initialCapacity: int, comparer: IEqual
     member _.Keys   : 'K seq = seq { for s in slots do if s.IsOccupied then yield s.Key }
     member _.Values : 'V seq = seq { for s in slots do if s.IsOccupied then yield s.Value }
 
-    // ── IEnumerable<KeyValuePair> ──────────────────────────────────────────
-
-    interface IEnumerable<KeyValuePair<'K,'V>> with
-        member _.GetEnumerator() =
-            let items = slots |> Array.filter (fun s -> s.IsOccupied)
-                               |> Array.map   (fun s -> KeyValuePair(s.Key, s.Value))
-            (items :> seq<KeyValuePair<'K,'V>>).GetEnumerator()
+    // ── GetEnumerator (direct, no IEnumerable VTable) ────────────────────────
+    // NOTE: IEnumerable<KVP> interface not supported in WasmGC (VTable issues).
+    // Provide GetEnumerator directly for iteration patterns (for .. in ..).
+    member this.GetEnumerator() =
+        let items = slots |> Array.filter (fun s -> s.IsOccupied)
+                          |> Array.map   (fun s -> KeyValuePair(s.Key, s.Value))
+        (items :> seq<KeyValuePair<'K,'V>>).GetEnumerator()
 
     override this.ToString() =
         sprintf "Dictionary<%s,%s>[count=%d]" (typeof<'K>.Name) (typeof<'V>.Name) count

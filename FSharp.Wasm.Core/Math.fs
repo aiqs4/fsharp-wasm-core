@@ -7,10 +7,10 @@ namespace System
 [<AbstractClass; Sealed>]
 type Math private () =
 
-    // Constants
-    static member val E  : float = 2.718281828459045
-    static member val PI : float = 3.141592653589793
-    static member val Tau: float = 6.283185307179586
+    // Constants (plain getters so the literal is emitted directly, not a backing-field init)
+    static member E   : float = 2.718281828459045
+    static member PI  : float = 3.141592653589793
+    static member Tau : float = 6.283185307179586
 
     // Abs
     static member Abs(value: int8)    : int8    = if value < 0y then -value else value
@@ -91,18 +91,17 @@ type Math private () =
     static member Cosh(value: float)    : float = cosh value
     static member Tanh(value: float)    : float = tanh value
 
-    // Integer helpers
-    static member DivRem(a: int,   b: int,   remainder: byref<int>)   =
-        remainder <- a % b; a / b
-    static member DivRem(a: int64, b: int64, remainder: byref<int64>) =
-        remainder <- a % b; a / b
+    // Integer helpers — DivRem needs byref (Sprint 32) — excluded for now
+    // static member DivRem(a: int, b: int, remainder: byref<int>) = ...
 
-    // Bit operations
-    static member BitDecrement(x: float) : float = System.Math.BitDecrement(x)
-    static member BitIncrement(x: float) : float = System.Math.BitIncrement(x)
+    // Bit operations — need native IEEE 754 helper (Sprint 32) — excluded for now
+    // static member BitDecrement(x: float) = ...
+    // static member BitIncrement(x: float) = ...
 
-    // Infinity / NaN checks
-    static member IsNaN(value: float)      : bool = System.Double.IsNaN(value)
-    static member IsInfinity(value: float) : bool = System.Double.IsInfinity(value)
-    static member IsPositiveInfinity(value: float): bool = System.Double.IsPositiveInfinity(value)
-    static member IsNegativeInfinity(value: float): bool = System.Double.IsNegativeInfinity(value)
+    // Infinity / NaN checks — use native F# comparisons to avoid Fable's indirect-call path
+    static member IsNaN(value: float) : bool = value <> value
+    // IsInfinity / IsPositiveInfinity / IsNegativeInfinity require f64 infinity constant
+    // which needs Sprint 32 support in the compiler.  Excluded for now.
+    // static member IsInfinity(value: float)       : bool = value = infinity || value = -infinity
+    // static member IsPositiveInfinity(value: float): bool = value = infinity
+    // static member IsNegativeInfinity(value: float): bool = value = -infinity
