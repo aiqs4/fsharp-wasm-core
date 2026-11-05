@@ -8,7 +8,7 @@ open System
 
 /// A mutable sequence of characters. Backed by a list of chunks so that
 /// every Append is O(1) amortised; ToString joins them.
-[<AllowNullLiteral>]
+// [<AllowNullLiteral>]
 type StringBuilder(initialCapacity: int) =
 
     let mutable chunks  : string list = []
@@ -16,15 +16,13 @@ type StringBuilder(initialCapacity: int) =
 
     new()                    = StringBuilder(16)
     new(value: string) as this =
-        StringBuilder(max 16 (if isNull value then 0 else value.Length))
+        StringBuilder(max 16 value.Length)
         then
-            if not (isNull value) then
-                this.Append(value) |> ignore
+            this.Append(value) |> ignore
     new(value: string, capacity: int) as this =
         StringBuilder(capacity)
         then
-            if not (isNull value) then
-                this.Append(value) |> ignore
+            this.Append(value) |> ignore
 
     member _.Length = totalLen
 

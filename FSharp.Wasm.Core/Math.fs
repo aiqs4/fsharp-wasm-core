@@ -79,17 +79,29 @@ type Math private () =
     static member Log2(value: float)    : float   = log value / log 2.0
     static member Log10(value: float)   : float   = log10 value
 
+    // Trig — float32 overloads lowering directly to Wasm instructions
+    static member Sin(value: float32)           : float32 = sin value
+    static member Cos(value: float32)           : float32 = cos value
+    static member Tan(value: float32)           : float32 = tan value
+    static member Asin(value: float32)          : float32 = asin value
+    static member Acos(value: float32)          : float32 = acos value
+    static member Atan(value: float32)          : float32 = atan value
+    static member Atan2(y: float32, x: float32) : float32 = atan2 y x
+    static member Sinh(value: float32)          : float32 = sinh value
+    static member Cosh(value: float32)          : float32 = cosh value
+    static member Tanh(value: float32)          : float32 = tanh value
+
     // Trig
-    static member Sin(value: float)     : float = sin value
-    static member Cos(value: float)     : float = cos value
-    static member Tan(value: float)     : float = tan value
-    static member Asin(value: float)    : float = asin value
-    static member Acos(value: float)    : float = acos value
-    static member Atan(value: float)    : float = atan value
-    static member Atan2(y: float, x: float): float = atan2 y x
-    static member Sinh(value: float)    : float = sinh value
-    static member Cosh(value: float)    : float = cosh value
-    static member Tanh(value: float)    : float = tanh value
+    static member Sin(value: float)         : float = sin value
+    static member Cos(value: float)         : float = cos value
+    static member Tan(value: float)         : float = tan value
+    static member Asin(value: float)        : float = asin value
+    static member Acos(value: float)        : float = acos value
+    static member Atan(value: float)        : float = atan value
+    static member Atan2(y: float, x: float) : float = atan2 y x
+    static member Sinh(value: float)        : float = sinh value
+    static member Cosh(value: float)        : float = cosh value
+    static member Tanh(value: float)        : float = tanh value
 
     // Integer helpers — DivRem needs byref (Sprint 32) — excluded for now
     // static member DivRem(a: int, b: int, remainder: byref<int>) = ...

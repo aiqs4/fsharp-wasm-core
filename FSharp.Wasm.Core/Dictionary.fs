@@ -1,10 +1,12 @@
 /// System.Collections.Generic.Dictionary<K,V> for WasmGC targets.
-/// Pure-F# open-addressing hash-table.  The fsharp-wasm backend lowers
+/// Pure-F# open-addressing hash-table  with linear probing + tombstones. 
+/// The fsharp-wasm backend lowers
 /// the bucket array to a WasmGC (array (mut (ref null $KVSlot))) struct.
 namespace System.Collections.Generic
 
 open System
 
+// ─── Slot (private implementation detail) ────────────────────────────────────
 [<Struct>]
 type private Slot<'K,'V> =
     val mutable IsOccupied : bool
@@ -14,42 +16,61 @@ type private Slot<'K,'V> =
     new(occupied, key, value, hash) =
         { IsOccupied = occupied; Key = key; Value = value; Hash = hash }
 
+// ─── KeyValuePair ─────────────────────────────────────────────────────────────
+type KeyValuePair<'K,'V>(key: 'K, value: 'V) =
+    member _.Key   = key
+    member _.Value = value
+    override _.ToString() = sprintf "[%A, %A]" key value
+
+// ─── IEqualityComparer ────────────────────────────────────────────────────────
+type IEqualityComparer<'T> =
+    abstract Equals     : 'T * 'T -> bool
+    abstract GetHashCode: 'T -> int
+
+// ─── Array enumerator (used by Dictionary.GetEnumerator) ─────────────────────
+type ArrayEnumerator<'T>(arr: 'T[]) =   // public: returned by Dictionary.GetEnumerator
+    let mutable idx = -1
+    member _.Current    = arr.[idx]
+    member _.MoveNext() = idx <- idx + 1; idx < arr.Length
+    member _.Reset()    = idx <- -1
+    member _.Dispose()  = ()
+
+// ─── Dictionary ───────────────────────────────────────────────────────────────
+
 /// Dictionary<K,V>: open-addressing hash table for WasmGC.
 /// NOTE: Never null in practice — no need for [<AllowNullLiteral>].
-type Dictionary<'K, 'V when 'K: equality>(initialCapacity: int, comparer: IEqualityComparer<'K>) =
+type Dictionary<'K, 'V when 'K: equality and 'K: not null and 'V: not null>(initialCapacity: int, comparer: IEqualityComparer<'K>) =
 
     let mutable slots   : Slot<'K,'V>[] = Array.zeroCreate (max 4 initialCapacity)
     let mutable count   : int           = 0
     let mutable deleted : int           = 0
 
-    let cmp =
-        if isNull (comparer :> obj) then
+    let cmp : IEqualityComparer<'K> =
+        if obj.ReferenceEquals(comparer, null) then
             { new IEqualityComparer<'K> with
-                member _.Equals(a, b)   = obj.Equals(a, b)
-                member _.GetHashCode(k) = if isNull (k :> obj) then 0 else k.GetHashCode() }
+                member _.Equals(a, b)   = obj.Equals(a :> obj, b :> obj)
+                member _.GetHashCode(k) =
+                    if obj.ReferenceEquals(k :> obj, null) then 0
+                    else (k :> obj).GetHashCode() }
         else comparer
 
-    // ── Internal helpers (must precede all members) ────────────────────────
+    // ── Internal helpers ──────────────────────────────────────────────────────
 
     let hashOf (key: 'K) =
         let h = cmp.GetHashCode(key) &&& 0x7FFFFFFF
-        if h = 0 then 1 else h   // 0 is reserved for "empty"
+        if h = 0 then 1 else h   // 0 reserved for "empty slot"
 
-    new()                        = Dictionary<'K,'V>(4, null)
-    new(capacity: int)           = Dictionary<'K,'V>(capacity, null)
+    // ── Additional constructors ───────────────────────────────────────────────
+    new()                             = Dictionary<'K,'V>(4, Unchecked.defaultof<_>)
+    new(capacity: int)                = Dictionary<'K,'V>(capacity, Unchecked.defaultof<_>)
     new(comparer: IEqualityComparer<'K>) = Dictionary<'K,'V>(4, comparer)
     new(other: Dictionary<'K,'V>) as this =
-        Dictionary<'K,'V>(other.Count, null)
-        then
-            // Copy: iterate slots directly (don't use seq/IEnumerable — WasmGC VTable not supported)
-            for i in 0 .. other.slots.Length - 1 do
-                let s = other.slots.[i]
-                if s.IsOccupied then
-                    this.SetInternal(s.Key, s.Value, s.Hash)
+        Dictionary<'K,'V>(max 4 other.Count, Unchecked.defaultof<_>)
+        then this.CopyFrom(other)
 
-    member private this.FindSlot(key: 'K, hash: int) : int =
-        let cap    = slots.Length
-        let mutable i = hash % cap
+    member private _.FindSlot(key: 'K, hash: int) : int =
+        let cap       = slots.Length
+        let mutable i         = hash % cap
         let mutable tombstone = -1
         let mutable result    = -1
         let mutable cont      = true
@@ -87,7 +108,19 @@ type Dictionary<'K, 'V when 'K: equality>(initialCapacity: int, comparer: IEqual
             slots.[i] <- Slot(true, key, value, hash)
             count <- count + 1
 
-    // ── Public surface ─────────────────────────────────────────────────────
+    // ── Copy from another dictionary (without :> seq<> cast) ─────────────────
+
+    /// Backing slot array (`let` fields of ANOTHER instance are not accessible; private members are).
+    member private _.Slots : Slot<'K,'V>[] = slots
+
+    member this.CopyFrom(other: Dictionary<'K,'V>) =
+        let otherSlots = other.Slots
+        for i in 0 .. otherSlots.Length - 1 do
+            let s = otherSlots.[i]
+            if s.IsOccupied then
+                this.SetInternal(s.Key, s.Value, s.Hash)
+
+    // ── Public surface ────────────────────────────────────────────────────────
 
     member _.Count    = count
     member _.Capacity = slots.Length
@@ -115,6 +148,7 @@ type Dictionary<'K, 'V when 'K: equality>(initialCapacity: int, comparer: IEqual
         let h = hashOf key
         let i = this.FindSlot(key, h)
         if i >= 0 && slots.[i].IsOccupied then
+            // Tombstone: IsOccupied=false, Hash=1 (non-zero → not empty)
             slots.[i] <- Slot(false, Unchecked.defaultof<'K>, Unchecked.defaultof<'V>, 1) // tombstone has hash!=0
             count   <- count   - 1
             deleted <- deleted + 1
@@ -127,7 +161,15 @@ type Dictionary<'K, 'V when 'K: equality>(initialCapacity: int, comparer: IEqual
         i >= 0 && slots.[i].IsOccupied
 
     member this.ContainsValue(value: 'V) : bool =
-        slots |> Array.exists (fun s -> s.IsOccupied && obj.Equals(s.Value, value))
+        // TODO: we need Array.exists in the BCL first. So we work around it for now
+        // slots |> Array.exists (fun s -> s.IsOccupied && obj.Equals(s.Value, value))
+        let mutable found = false
+        let mutable i = 0
+        while not found && i < slots.Length do
+            if slots.[i].IsOccupied && obj.Equals(box slots.[i].Value, box value) then
+                found <- true
+            i <- i + 1
+        found
 
     member this.TryGetValue(key: 'K, value: outref<'V>) : bool =
         let h = hashOf key
@@ -148,26 +190,72 @@ type Dictionary<'K, 'V when 'K: equality>(initialCapacity: int, comparer: IEqual
         count   <- 0
         deleted <- 0
 
-    member _.Keys   : 'K seq = seq { for s in slots do if s.IsOccupied then yield s.Key }
-    member _.Values : 'V seq = seq { for s in slots do if s.IsOccupied then yield s.Value }
+    // ── Key/Value collections (as arrays) ─────────────────────────────────────
 
+    // TODO: disabled for now until seq support lands in the compiler
+    // member _.Keys   : 'K seq = seq { for s in slots do if s.IsOccupied then yield s.Key }
+    // member _.Values : 'V seq = seq { for s in slots do if s.IsOccupied then yield s.Value }
+
+    member _.Keys : 'K[] =
+        let result = Array.zeroCreate count
+        let mutable j = 0
+        for i in 0 .. slots.Length - 1 do
+            if slots.[i].IsOccupied then
+                result.[j] <- slots.[i].Key
+                j <- j + 1
+        result
+
+    member _.Values : 'V[] =
+        let result = Array.zeroCreate count
+        let mutable j = 0
+        for i in 0 .. slots.Length - 1 do
+            if slots.[i].IsOccupied then
+                result.[j] <- slots.[i].Value
+                j <- j + 1
+        result
+    
     // ── GetEnumerator (direct, no IEnumerable VTable) ────────────────────────
     // NOTE: IEnumerable<KVP> interface not supported in WasmGC (VTable issues).
     // Provide GetEnumerator directly for iteration patterns (for .. in ..).
+    //  TODO: 
+    // member this.GetEnumerator() =
+    //     let items = slots |> Array.filter (fun s -> s.IsOccupied)
+    //                       |> Array.map   (fun s -> KeyValuePair(s.Key, s.Value))
+    //     (items :> seq<KeyValuePair<'K,'V>>).GetEnumerator()
+
+    // ── GetEnumerator — explicit, no interface cast ───────────────────────────
+    // Returns KVP array snapshot. No IEnumerable<KVP> interface needed.
+
+    // TODO: helper because of missing BCL support yet
+    member _.ToKvpArray() : KeyValuePair<'K,'V>[] =
+        let result = Array.zeroCreate count
+        let mutable j = 0
+        for i in 0 .. slots.Length - 1 do
+            if slots.[i].IsOccupied then
+                result.[j] <- KeyValuePair(slots.[i].Key, slots.[i].Value)
+                j <- j + 1
+        result
+
+    // For `for kvp in dict do` — Fable desugars this to GetEnumerator().
+    // We provide a non-interface version so no VTable registration needed.
     member this.GetEnumerator() =
-        let items = slots |> Array.filter (fun s -> s.IsOccupied)
-                          |> Array.map   (fun s -> KeyValuePair(s.Key, s.Value))
-        (items :> seq<KeyValuePair<'K,'V>>).GetEnumerator()
+        ArrayEnumerator(this.ToKvpArray())
 
-    override this.ToString() =
-        sprintf "Dictionary<%s,%s>[count=%d]" (typeof<'K>.Name) (typeof<'V>.Name) count
+    // Sum helper (avoids Seq.sumBy which needs IEnumerable)
+    member this.SumValues(selector: 'V -> int) : int =
+        let mutable total = 0
+        for i in 0 .. slots.Length - 1 do
+            if slots.[i].IsOccupied then
+                total <- total + selector slots.[i].Value
+        total
 
-// IEqualityComparer and KeyValuePair are defined here because on WasmGC there is no BCL.
-and IEqualityComparer<'T> =
-    abstract Equals     : 'T * 'T -> bool
-    abstract GetHashCode: 'T -> int
+    override _.ToString() =
+        // TODO: no typeof support yet
+        // sprintf "Dictionary<%s,%s>[count=%d]" (typeof<'K>.Name) (typeof<'V>.Name) count
+        sprintf "Dictionary[count=%d]" count
 
-and KeyValuePair<'K,'V>(key: 'K, value: 'V) =
-    member _.Key   = key
-    member _.Value = value
-    override _.ToString() = sprintf "[%A, %A]" key value
+
+
+// ─── KeyNotFoundException (if not in Exception.fs already) ───────────────────
+// Only define if not already defined in System namespace
+
